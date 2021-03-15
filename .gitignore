@@ -1,0 +1,6 @@
+*.spacy
+*.docbin
+.ipynb_checkpoints/*
+__pycache__/*
+*.json
+*.pkl

@@ -179,6 +179,8 @@ class UnifiedAnnotator(annotations.BaseAnnotator):
         
         annotated = doc.user_data.get("annotations", [])
         for source in annotated:
+            if source == "score":
+                continue
 
             other_sources = [s for s in annotated if "HMM" not in s 
                              and s!="gold" and s in SOURCE_NAMES
@@ -235,7 +237,7 @@ class UnifiedAnnotator(annotations.BaseAnnotator):
 class HMMAnnotator(hmmlearn.hmm._BaseHMM, UnifiedAnnotator):
   
     def __init__(self, sources_to_keep=None, source_name="HMM", informative_priors=True):
-        hmmlearn.hmm._BaseHMM.__init__(self, len(POSITIONED_LABELS), verbose=True, n_iter=10)
+        hmmlearn.hmm._BaseHMM.__init__(self, len(POSITIONED_LABELS), verbose=True, n_iter=15)
         UnifiedAnnotator.__init__(self, sources_to_keep= sources_to_keep, source_name=source_name)
         self.informative_priors = informative_priors
         
@@ -258,9 +260,16 @@ class HMMAnnotator(hmmlearn.hmm._BaseHMM, UnifiedAnnotator):
             curr_logprob = 0
             
             nb_docs = 0
+            import random
             for doc in annotations.docbin_reader(docbin_file, cutoff=cutoff):
+                if doc.user_data["annotations"]["score"]  != 5:
+                    if random.randint(0,9) > 3:
+                        continue
+                        
                 X = self.extract_sequence(doc)
-                framelogprob = self._compute_log_likelihood(X)
+                score = 1.0
+                import math
+                framelogprob = self._compute_log_likelihood(X) +  math.log(score)
                 if framelogprob.max(axis=1).min() < -100000:
                     print("problem found!")
                     return framelogprob
@@ -553,7 +562,7 @@ class SnorkelModel(UnifiedAnnotator):
             if len(all_obs) > 5:
                 break
         all_obs = np.vstack(all_obs)
-        self.label_model = snorkel.labeling.LabelModel(len(LABELS) + 1)
+        self.label_model = snorkel.labeling.model.label_model.LabelModel(len(LABELS) + 1)
         self.label_model.fit(all_obs)
         
     def _get_inputs(self, doc):
@@ -589,5 +598,3 @@ class SnorkelModel(UnifiedAnnotator):
                 doc.user_data["annotations"][self.source_name][(start,end)] = ((label, prob),)
         return doc
     
-    
-            

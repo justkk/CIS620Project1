@@ -4,12 +4,12 @@ import re, subprocess, os, shutil, math, re, logging, pickle, json, itertools, f
 import pandas
 import spacy
 import tensorflow.keras as keras
-import crf
+import keras_contrib.layers as crf
 import tensorflow as tf
 import torch, cupy 
 import h5py 
 import annotations
-
+import resource
 
 # List of allowed characters (for the character embeddings)
 CHARACTERS = [chr(i) for i in range(32, 127)] + [chr(i) for i in range(160,255)] + ['—','―','‘','’','“','”','…','€']
@@ -18,6 +18,16 @@ CHARACTERS = [chr(i) for i in range(32, 127)] + [chr(i) for i in range(160,255)]
 LABELS = ['CARDINAL', "COMPANY", 'DATE', 'EVENT', 'FAC', 'GPE', 'LANGUAGE', 'LAW', 'LOC', 'MONEY', 
           'NORP', 'ORDINAL', 'ORG', 'PERCENT', 'PERSON', 'PRODUCT', 'QUANTITY', 'TIME', 'WORK_OF_ART']
 
+USE_BERT = True
+
+
+class MemoryCallback(keras.callbacks.Callback):
+    def on_epoch_end(self, epoch, log = {}):
+        print(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    
+    def on_train_batch_end(self, batch, logs=None):
+        print(logs)
+        print(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
 
 class NERModel(annotations.BaseAnnotator):
     """
@@ -132,15 +142,22 @@ class NERModel(annotations.BaseAnnotator):
         
         # Starts training
         print("start training")
-        batch_generator = self.generator(train_docs)
+        batch_generator = self.infgenerator(train_docs)
         self.model.fit_generator(batch_generator, validation_data=val_batch,
                                  steps_per_epoch=self.params["epoch_length"],
-                                 epochs=self.params["nb_epochs"],callbacks=[saver], 
-                                 use_multiprocessing=True, max_queue_size=150) 
+                                 epochs=self.params["nb_epochs"],callbacks=[saver, MemoryCallback()], 
+                                 use_multiprocessing=False, max_queue_size=10, workers = 1) 
         
         return self
+    
+    def dummy_gen(self, batch_gen):
+        dummy = next(batch_gen)
+        for i in range(1000):
+            print(i, dummy[0][0].shape, dummy[0][1].shape, dummy[1].shape, dummy[2].shape)
+            yield dummy
+            dummy = next(batch_gen)
+      
         
-       
         
     def build(self):
         """Builds the neural architecture (based on the parameters in self.params)"""
@@ -323,33 +340,68 @@ class NERModel(annotations.BaseAnnotator):
                 spacy_doc.user_data["annotations"][self.name] = annotated
                 
         return spacy_doc
+    
+    def infgenerator(self, docs):
+        
+        batch = []
+        while True:
+            if self.params["use_roberta_embeddings"]:
+
+                roberta_wordpiecer = self.roberta.get_pipe("trf_wordpiecer")
+                roberta_tok2vec = self.roberta.get_pipe("trf_tok2vec")
+                docs = roberta_tok2vec.pipe(roberta_wordpiecer.pipe(docs))
+
+            
+            for spacy_doc in docs:
+                
+                if len(spacy_doc) > 10000:
+                    continue
+
+                inputs = self._convert_inputs(spacy_doc)
+                outputs = self._convert_outputs(spacy_doc)
+                weights = np.ones((1, len(spacy_doc)), dtype=np.float32)
+
+                if self.params["batch_size"]==1:
+                    yield inputs, outputs, weights
+                else:
+                    batch.append((inputs, outputs, weights))
+                    if len(batch)>= self.params["batch_size"]:
+                        yield _stack_batch(batch)
+                        batch.clear()
+
+            if batch:
+                yield _stack_batch(batch)
+                batch.clear()
+        
                           
     def generator(self, docs):
         """Generates the input tensors for each document """
                
         # If we use roBERTa embeddings, run the docs through a pipe
-        if self.params["use_roberta_embeddings"]:
-           
-            roberta_wordpiecer = self.roberta.get_pipe("trf_wordpiecer")
-            roberta_tok2vec = self.roberta.get_pipe("trf_tok2vec")
-            docs = roberta_tok2vec.pipe(roberta_wordpiecer.pipe(docs))
-        
-        batch = []
-        for spacy_doc in docs:
+        if True:
+            if self.params["use_roberta_embeddings"]:
 
-            inputs = self._convert_inputs(spacy_doc)
-            outputs = self._convert_outputs(spacy_doc)
-            weights = np.ones((1, len(spacy_doc)), dtype=np.float32)
-                        
-            if self.params["batch_size"]==1:
-                yield inputs, outputs, weights
-            else:
-                batch.append((inputs, outputs, weights))
-                if len(batch)>= self.params["batch_size"]:
-                    yield _stack_batch(batch)
-                    batch.clear()
-        if batch:
-            yield _stack_batch(batch)
+                roberta_wordpiecer = self.roberta.get_pipe("trf_wordpiecer")
+                roberta_tok2vec = self.roberta.get_pipe("trf_tok2vec")
+                docs = roberta_tok2vec.pipe(roberta_wordpiecer.pipe(docs))
+
+            batch = []
+            for spacy_doc in docs:
+
+                inputs = self._convert_inputs(spacy_doc)
+                outputs = self._convert_outputs(spacy_doc)
+                weights = np.ones((1, len(spacy_doc)), dtype=np.float32)
+
+                if self.params["batch_size"]==1:
+                    yield inputs, outputs, weights
+                else:
+                    batch.append((inputs, outputs, weights))
+                    if len(batch)>= self.params["batch_size"]:
+                        yield _stack_batch(batch)
+                        batch.clear()
+
+            if batch:
+                yield _stack_batch(batch)
  
 
     def _convert_inputs(self, spacy_doc):
@@ -370,6 +422,7 @@ class NERModel(annotations.BaseAnnotator):
         if self.params["use_roberta_embeddings"]:
             roberta_embeddings = cupy.asnumpy(spacy_doc.tensor)
             inputs.append(np.expand_dims(roberta_embeddings,axis=0))
+        
         return inputs
     
     

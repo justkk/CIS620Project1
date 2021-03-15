@@ -1,3 +1,29 @@
+Reead Me for Project:
+
+Name: Venkata Sai Nikhil Thodupunuri
+Id: 62716136
+
+
+Main Files (ipynb): 
+
+=> Replicate Main Results
+=> Replicate Results with Data Fix
+=> BIO Scheme
+=> IO Scheme 
+=> Ad hoc scripts for visualization and Label generation. 
+
+
+Note:
+Current NER.py is changed to handle random document sampling. I do it by setting a score for every document. This might fail if we directly run it for normal examples. Replace the ner.py with the master branch to run normal experiments.  
+
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+
+
+
+
 # Weak supervision for NER
 
 Source code associated with the paper "Named Entity Recognition without Labelled Data: a Weak Supervision Approach" accepted to ACL 2020.

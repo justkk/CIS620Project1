@@ -54,8 +54,12 @@ def get_results(docs, target_source, labels_to_map=None, labels_to_keep=None, co
     ent_fn = {}
     ent_support = {}
     tok_support = {}
+    cnt = 0
     
     for doc in docs:
+        cnt  += 1
+#         if cnt  >= 21:
+#             continue
         
         source_annotations = doc.user_data["annotations"][target_source]
         
